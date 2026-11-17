@@ -1,8 +1,8 @@
 
 ## What it does
 
-  mouse or keyboard is being used on the child's account: after 1 minute 15 seconds with no
-  mouse or keyboard, counting pauses (and that quiet time isn't counted). Notifications
+- **Time Counting:** After 1 minute 15 seconds with no
+  mouse or keyboard activity, counting pauses (and that quiet time isn't counted). Notifications
   at 5 and 1 minutes left, then the computer locks every 5 seconds until more time is added
   (typing a coupon or the supervisor password holds the lock off until 7 seconds after the last key).
 - **Extra time:** coupons the child can redeem, or time the supervisor adds.
