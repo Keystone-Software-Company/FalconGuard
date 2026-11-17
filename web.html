@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FalconGuard</title>
+<style>
+/* Windows 2000 look, matching the FalconGuard window */
+:root{--face:#d4d0c8;--hi:#fff;--sh:#808080;--dk:#404040;--ink:#000;--gray:#808080;--sel:#0a246a;
+  --title2:#a6caf0;--win:#fff;--blocked:#6a96e8;--grid:#1e2c50;--always:#006000;--never:#a00000;color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:#3a6ea5;font:11px Tahoma,"MS Sans Serif","Segoe UI",Verdana,sans-serif;color:var(--ink);
+  padding:24px 16px;-webkit-user-select:none;user-select:none}
+input{font:inherit;-webkit-user-select:text;user-select:text}
+.win{background:var(--face);max-width:498px;margin:0 auto;padding:3px;
+  box-shadow:inset -1px -1px var(--dk),inset 1px 1px var(--face),inset -2px -2px var(--sh),inset 2px 2px var(--hi)}
+.title{height:18px;display:flex;align-items:center;gap:4px;padding:0 2px;color:#fff;font-weight:bold;
+  background:linear-gradient(90deg,var(--sel),var(--title2))}
+.title .t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cap{width:16px;height:14px;border:0;padding:0;background:var(--face);display:grid;place-items:center;cursor:default;
+  box-shadow:inset -1px -1px var(--dk),inset 1px 1px var(--hi),inset -2px -2px var(--sh);font:bold 10px Tahoma,sans-serif;color:#000}
+.cap:active{box-shadow:inset 1px 1px var(--dk),inset -1px -1px var(--hi),inset 2px 2px var(--sh)}
+.body{padding:8px 6px}
+.dlg .body{padding:11px}
+/* tabs */
+.tabs{display:flex;padding-left:2px;position:relative;z-index:1;overflow-x:auto;scrollbar-width:none}
+.tab{border:0;background:var(--face);font:inherit;padding:2px 4px 2px;margin-top:2px;white-space:nowrap;cursor:default;
+  border-top:1px solid var(--hi);border-left:1px solid var(--hi);box-shadow:inset -1px 0 var(--sh),1px 0 var(--dk);
+  border-radius:2px 2px 0 0;color:#000}
+.tab.on{margin-top:0;padding:3px 6px 4px;margin-left:-2px;margin-right:-1px;margin-bottom:-2px;position:relative;z-index:2}
+.tab:focus-visible,.btn:focus-visible{outline:1px dotted #000;outline-offset:-4px}
+.sheet{padding:10px;box-shadow:inset -1px -1px var(--dk),inset 1px 1px var(--hi),inset -2px -2px var(--sh)}
+.page{display:none}.page.on{display:block}
+/* controls */
+.btn{min-width:75px;height:23px;padding:0 10px;border:0;background:var(--face);font:inherit;color:#000;cursor:default;
+  box-shadow:inset -1px -1px var(--dk),inset 1px 1px var(--hi),inset -2px -2px var(--sh)}
+.btn.def{outline:1px solid #000}
+.btn:active:not(:disabled){box-shadow:inset 0 0 0 1px var(--sh);padding:1px 9px 0 11px}
+.btn:disabled{color:var(--gray);text-shadow:1px 1px var(--hi)}
+.sunken{background:var(--win);box-shadow:inset 1px 1px var(--sh),inset -1px -1px var(--hi),inset 2px 2px var(--dk),inset -2px -2px var(--face)}
+.field{border:0;height:21px;padding:2px 5px;width:100%;outline:0}
+.thin{box-shadow:inset 1px 1px var(--sh),inset -1px -1px var(--hi);padding:2px 4px}
+fieldset{border:1px solid var(--sh);box-shadow:inset 1px 1px var(--hi),1px 1px var(--hi);margin:0 0 10px;padding:6px 10px 9px;min-width:0}
+fieldset:last-child{margin-bottom:0}
+legend{padding:0 2px}
+.row{display:flex;align-items:center;gap:8px}
+.between{justify-content:space-between}
+.end{display:flex;justify-content:flex-end;gap:6px}
+.gray{color:var(--gray)}
+.bold{font-weight:bold}
+.icotext{display:flex;gap:10px;align-items:flex-start}
+.chk{display:flex;gap:6px;align-items:flex-start;margin:3px 0}
+.chk input{appearance:none;-webkit-appearance:none;width:13px;height:13px;margin:1px 0 0;flex:none;background:#fff;
+  box-shadow:inset 1px 1px var(--sh),inset -1px -1px var(--hi),inset 2px 2px var(--dk),inset -2px -2px var(--face)}
+.chk input:checked{background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 13'%3E%3Cpath d='M3 6l2 2 5-5v2l-5 5-2-2z' fill='black'/%3E%3C/svg%3E")}
+.chk input[type=radio]{border-radius:50%}
+.chk input[type=radio]:checked{background:radial-gradient(#000 0 2px,#fff 2.5px)}
+.list{height:150px;overflow-y:auto;padding:2px}
+.list div{padding:0 2px;white-space:nowrap;cursor:default}
+.list div.sel{background:var(--sel);color:#fff!important}
+.status{display:flex;gap:2px;margin-top:2px}
+.status div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banner{display:flex;gap:8px;align-items:flex-start;padding:5px 6px;margin-bottom:7px;box-shadow:inset 1px 1px var(--sh),inset -1px -1px var(--hi)}
+.banner.warn{background:#ffffe1}.banner.crit{background:#c00000;color:#fff;font-weight:bold}
+/* trackbar */
+.track{position:relative;height:30px;touch-action:none;outline:0}
+.track .groove{position:absolute;left:4px;right:4px;top:8px;height:4px;
+  box-shadow:inset 1px 1px var(--sh),inset -1px -1px var(--hi),inset 2px 2px var(--dk)}
+.track .tick{position:absolute;top:24px;width:1px;height:5px;background:#000}
+.track .thumb{position:absolute;top:0;width:11px;height:21px;margin-left:-5px}
+.track:focus-visible{outline:1px dotted #000}
+.vtrack{position:relative;width:40px;touch-action:none;outline:0;flex:none}
+.vtrack .groove{position:absolute;top:4px;bottom:4px;left:18px;width:4px;
+  box-shadow:inset 1px 1px var(--sh),inset -1px -1px var(--hi),inset 2px 2px var(--dk)}
+.vtrack .tick{position:absolute;left:4px;width:5px;height:1px;background:#000}
+.vtrack .thumb{position:absolute;left:9px;width:22px;height:11px;margin-top:-5px;background:var(--face);
+  box-shadow:inset -1px -1px var(--dk),inset 1px 1px var(--hi),inset -2px -2px var(--sh)}
+/* spin */
+.spin{display:inline-flex;align-items:stretch}
+.spin span{width:62px;height:21px;padding:3px 4px;background:#fff}
+.spin .arrows{display:flex;flex-direction:column;width:16px}
+.spin button{flex:1;border:0;padding:0;background:var(--face);font-size:7px;line-height:1;cursor:default;color:#000;
+  box-shadow:inset -1px -1px var(--dk),inset 1px 1px var(--hi)}
+.spin button:active{box-shadow:inset 0 0 0 1px var(--sh)}
+/* hour grid */
+.gridwrap{overflow-x:auto}
+table.hours{border-collapse:collapse;touch-action:none}
+table.hours td{width:15px;height:15px;border:1px solid var(--grid);background:#fff;padding:0}
+table.hours td.b{background:var(--blocked)}
+table.hours th{font-weight:normal;padding:0;text-align:left;cursor:default}
+table.hours th.day{width:66px;white-space:nowrap}
+table.hours th.h{font-size:11px;height:14px;position:relative;width:15px}
+table.hours th.h span{position:absolute;left:-7px;width:15px;text-align:center;bottom:1px}
+.legend{display:inline-block;width:13px;height:13px;border:1px solid var(--grid);vertical-align:-3px;margin-right:4px}
+.zones{display:grid;grid-template-columns:repeat(3,1fr);padding:6px 0;text-align:center}
+.zones div{cursor:default}
+.zones .name{padding:0 2px}
+.zones .sel .name{background:var(--sel);color:#fff}
+.tree{height:92px;padding:2px}
+.tree div{display:flex;align-items:center;gap:3px;height:17px}
+.tree span{padding:0 2px}
+.tree .sel{background:var(--sel);color:#fff}
+.prog{height:18px;padding:3px;display:flex;gap:3px;overflow:hidden;
+  box-shadow:inset 1px 1px var(--sh),inset -1px -1px var(--hi);background:#fff}
+.prog i{flex:none;width:7px;background:var(--sel)}
+.big{font-size:26px;font-weight:bold;color:var(--sel);line-height:1}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px}
+/* dialogs */
+.overlay{position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.08)}
+.dlg{max-width:min(520px,100%);min-width:min(300px,100%)}
+.closed{color:#fff;text-align:center;margin-top:20vh;font-size:13px}
+@media (max-width:420px){body{padding:8px 4px}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+// ---------------------------------------------------------------- helpers
+const $ = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v;
+    else if (k === "style") e.style.cssText = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "html") e.innerHTML = v;
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k));
+  return e;
+};
+const txt = (s, cls) => $("div", cls ? {class: cls} : {}, ...String(s).split("\n").flatMap((l, i) => i ? [$("br"), l] : [l]));
+const clone = o => JSON.parse(JSON.stringify(o));
+const sound = n => { try { new Audio("/sounds/" + n + ".mp3").play().catch(() => {}); } catch (e) {} };
+const fmtMinutes = m => m == null ? "No limit" : m < 60 ? m + "m" : (m % 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m / 60}h`);
+const fmtHour = h => h >= 24 ? "midnight" : `${h % 12 || 12}:00 ${h < 12 ? "AM" : "PM"}`;
+function normalizeSite(t) {
+  t = t.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "");
+  t = t.split("/")[0].split("?")[0].split("#")[0].split(":")[0].replace(/\.+$/, "");
+  return /^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(t) ? t : null;
+}
+function siteMatches(host, site) {
+  let b = site.startsWith("*.") ? site.slice(2) : site;
+  if (b.startsWith("www.")) b = b.slice(4);
+  return host === b || host.endsWith("." + b);
+}
+
+// ---------------------------------------------------------------- icons (same drawings as the window)
+const ICONS = {
+  falcon: `<polygon points="1,9 6,4 10,5 15,2 13,7 9,9 8,14 6,11 1,10" fill="#c8862e" stroke="#5a3208" stroke-width=".6"/><polygon points="10,5 12.5,4.2 11,6.2" fill="#f4d070"/><circle cx="11.1" cy="4.7" r=".55"/>`,
+  lock: `<path d="M4.5 7V6.2a3.5 4.7 0 0 1 7 0V8" fill="none" stroke="#707070" stroke-width="1.5"/><rect x="2.5" y="7.5" width="11" height="7.5" fill="#f0c020" stroke="#7a5800" stroke-width=".7"/><line x1="3.5" y1="8.5" x2="12.5" y2="8.5" stroke="#fff0a0"/><circle cx="8" cy="11" r="1" fill="#5a4000"/><line x1="8" y1="11.5" x2="8" y2="13.5" stroke="#5a4000" stroke-width="1.5"/>`,
+  key: `<circle cx="4" cy="8" r="3" fill="#f0c020" stroke="#7a5800" stroke-width=".7"/><circle cx="4" cy="8" r="1" fill="BG" stroke="#7a5800" stroke-width=".5"/><rect x="7" y="7" width="8" height="2" fill="#f0c020" stroke="#7a5800" stroke-width=".5"/><rect x="11" y="9" width="1.5" height="2.5" fill="#f0c020" stroke="#7a5800" stroke-width=".5"/><rect x="13.5" y="9" width="1.5" height="2" fill="#f0c020" stroke="#7a5800" stroke-width=".5"/>`,
+  password: `<circle cx="4.5" cy="6.5" r="3.5" fill="#f0c020" stroke="#7a5800" stroke-width=".7"/><circle cx="4" cy="6" r="1" fill="BG" stroke="#7a5800" stroke-width=".5"/><g stroke="#7a5800" stroke-width="2"><line x1="7" y1="9" x2="14" y2="15"/><line x1="11" y1="12" x2="13" y2="10"/><line x1="9" y1="10.5" x2="10.5" y2="9"/></g>`,
+  internet: `<circle cx="8" cy="8" r="6.5" fill="#2f6fd6" stroke="#0a2a7a" stroke-width=".7"/><path d="M4 4l3-.5 1 2.5-1.5 2 1 2.5-1.5 2.5-1.5-2L3 7z" fill="#3cae3c"/><path d="M10 3l3 2 .5 3-2 1-1.5-2.5z" fill="#3cae3c"/><path d="M3.5 6A3 3 0 0 1 6 3.5" fill="none" stroke="#a8d0ff" stroke-width="1"/>`,
+  trusted: `<circle cx="8" cy="8" r="6.5" fill="#22a345" stroke="#0a5a1c" stroke-width=".7"/><polyline points="4.5,8 7,10.5 11.5,5" fill="none" stroke="#fff" stroke-width="2"/>`,
+  restricted: `<circle cx="8" cy="8" r="6.5" fill="#d42020" stroke="#6a0000" stroke-width=".7"/><rect x="4" y="6.8" width="8" height="2.4" fill="#fff"/>`,
+  sites: `<path d="M6.5 8.5V7.2a3 4.2 0 0 1 6 0V9" fill="none" stroke="#707070" stroke-width="1.4"/><rect x="5" y="8.5" width="9" height="6.5" fill="#f0c020" stroke="#7a5800" stroke-width=".6"/><circle cx="9.5" cy="11.3" r=".8" fill="#5a4000"/><rect x="1" y="1" width="6" height="8" fill="#fff" stroke="#000" stroke-width=".5"/><g stroke="#0a246a" stroke-width=".6"><line x1="2.5" y1="3" x2="5.5" y2="3"/><line x1="2.5" y1="5" x2="5.5" y2="5"/><line x1="2.5" y1="7" x2="5.5" y2="7"/></g>`,
+  log: `<rect x="3" y="1" width="10" height="14" fill="#fff" stroke="#000" stroke-width=".6"/><rect x="3" y="1" width="10" height="2.5" fill="#0a246a"/><g stroke="#808080" stroke-width=".6"><line x1="4.5" y1="6" x2="11.5" y2="6"/><line x1="4.5" y1="8" x2="11.5" y2="8"/><line x1="4.5" y1="10" x2="11.5" y2="10"/><line x1="4.5" y1="12" x2="11.5" y2="12"/></g>`,
+  clock: `<circle cx="8" cy="8" r="7" fill="#fff" stroke="#1e2c50" stroke-width="1.2"/><g stroke="#1e2c50" stroke-width=".7"><line x1="8" y1="2.5" x2="8" y2="3.5"/><line x1="13.5" y1="8" x2="12.5" y2="8"/><line x1="8" y1="13.5" x2="8" y2="12.5"/><line x1="2.5" y1="8" x2="3.5" y2="8"/></g><g stroke="#000" stroke-width="1.2"><line x1="8" y1="8" x2="8" y2="4"/><line x1="8" y1="8" x2="11" y2="9.5"/></g><circle cx="8" cy="8" r=".7" fill="#c00000"/>`,
+  coupon: `<polygon points="1,4 15,4 15,6.5 14,8 15,9.5 15,12 1,12 1,9.5 2,8 1,6.5" fill="#ffcc33" stroke="#8a5a00" stroke-width=".6"/><line x1="10.5" y1="5" x2="10.5" y2="11.5" stroke="#8a5a00" stroke-width=".6" stroke-dasharray="1 1"/><text x="5.8" y="10.6" font-size="8" font-weight="bold" text-anchor="middle" fill="#8a3a00" font-family="Tahoma,sans-serif">+</text>`,
+  info: `<circle cx="8" cy="8" r="7" fill="#fff" stroke="#000080" stroke-width="1.2"/><rect x="7" y="3.5" width="2" height="2" fill="#0000c0"/><rect x="7" y="6.5" width="2" height="6" fill="#0000c0"/>`,
+  question: `<circle cx="8" cy="8" r="7" fill="#fff" stroke="#000080" stroke-width="1.2"/><text x="8" y="12" font-size="10" font-weight="bold" text-anchor="middle" fill="#0000c0" font-family="Tahoma,sans-serif">?</text>`,
+  error: `<circle cx="8" cy="8" r="7" fill="#e02020" stroke="#700000" stroke-width="1.2"/><g stroke="#fff" stroke-width="1.8"><line x1="5" y1="5" x2="11" y2="11"/><line x1="11" y1="5" x2="5" y2="11"/></g>`,
+  warning: `<polygon points="8,1 15,14.5 1,14.5" fill="#ffd800" stroke="#000" stroke-width=".6"/><rect x="7.2" y="5" width="1.6" height="5.5"/><rect x="7.2" y="11.5" width="1.6" height="1.5"/>`,
+};
+const mixNavy = hex => {
+  if (/^#fff(fff)?$/i.test(hex)) return hex;
+  const v = hex.length === 4 ? hex.slice(1).split("").map(c => parseInt(c + c, 16)) : [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  const n = [0x0a, 0x24, 0x6a];
+  return "#" + v.map((x, i) => Math.round((x + n[i]) / 2).toString(16).padStart(2, "0")).join("");
+};
+const iconSvg = (kind, size, bg, selected) => {
+  let body = ICONS[kind].replace(/BG/g, bg);
+  if (selected) body = body.replace(/#[0-9a-f]{6}\b|#[0-9a-f]{3}\b/gi, mixNavy);
+  return `<svg viewBox="0 0 16 16" width="${size}" height="${size}" aria-hidden="true">${body}</svg>`;
+};
+const icon = (kind, size = 16, bg = "#d4d0c8", selected = false) => {
+  const s = $("span", {style: `display:inline-flex;flex:none;width:${size}px;height:${size}px`});
+  s.innerHTML = iconSvg(kind, size, bg, selected);
+  s.kind = kind;
+  return s;
+};
+
+// ---------------------------------------------------------------- widgets
+function button(text, onclick, opts = {}) {
+  const b = $("button", {class: "btn" + (opts.def ? " def" : ""), type: "button", onclick}, text);
+  if (opts.disabled) b.disabled = true;
+  return b;
+}
+function field(opts = {}) {
+  const i = $("input", {class: "field", type: opts.type || "text", placeholder: opts.placeholder || "",
+    autocomplete: opts.type === "password" ? "current-password" : "off", spellcheck: "false"});
+  if (opts.value) i.value = opts.value;
+  if (opts.bold) i.style.fontWeight = "bold";
+  const box = $("div", {class: "sunken", style: "padding:2px;" + (opts.width ? `width:${opts.width}px` : "flex:1")}, i);
+  box.input = i;
+  return box;
+}
+function checkbox(text, checked, onchange) {
+  const i = $("input", {type: "checkbox"}); i.checked = checked;
+  i.addEventListener("change", () => onchange(i.checked));
+  return $("label", {class: "chk"}, i, txt(text));
+}
+function radios(options, value, onchange) {
+  const name = "r" + Math.random().toString(36).slice(2);
+  return $("div", {}, options.map(([k, t]) => {
+    const i = $("input", {type: "radio", name}); i.checked = k === value;
+    i.addEventListener("change", () => i.checked && onchange(k));
+    return $("label", {class: "chk"}, i, t);
+  }));
+}
+function trackbar(steps, value, onchange) {
+  const t = $("div", {class: "track", tabindex: "0"}, $("div", {class: "groove"}));
+  const ticks = [], pad = 13;
+  for (let i = 0; i < steps; i++) { const k = $("div", {class: "tick"}); ticks.push(k); t.append(k); }
+  const thumb = $("div", {class: "thumb", html: `<svg width="11" height="21" viewBox="0 0 11 21"><polygon points="0,0 10,0 10,15 5,20 0,15" fill="#d4d0c8"/><polyline points="0,15 0,0 10,0" fill="none" stroke="#fff"/><polyline points="0.5,15.5 5,20" stroke="#fff"/><polyline points="10.5,0 10.5,15 5.5,20.5" fill="none" stroke="#404040"/><polyline points="9.5,1 9.5,15 5,19.5" fill="none" stroke="#808080"/></svg>`});
+  t.append(thumb);
+  const pos = i => `calc(${pad}px + (100% - ${2 * pad}px) * ${i / (steps - 1)})`;
+  const draw = () => { ticks.forEach((k, i) => k.style.left = pos(i)); thumb.style.left = pos(value); };
+  const set = i => { i = Math.max(0, Math.min(steps - 1, i)); if (i !== value) { value = i; draw(); onchange(i); } };
+  const fromX = e => { const r = t.getBoundingClientRect(); set(Math.round((e.clientX - r.left - pad) / (r.width - 2 * pad) * (steps - 1))); };
+  t.addEventListener("pointerdown", e => { t.focus(); t.setPointerCapture(e.pointerId); fromX(e); });
+  t.addEventListener("pointermove", e => { if (t.hasPointerCapture(e.pointerId)) fromX(e); });
+  t.addEventListener("keydown", e => { if (/Left|Up/.test(e.key)) set(value - 1); if (/Right|Down/.test(e.key)) set(value + 1); });
+  draw(); t.set = i => { value = i; draw(); }; return t;
+}
+function vtrackbar(steps, value, onchange, len = 90) {
+  const t = $("div", {class: "vtrack", tabindex: "0", style: `height:${len}px`}, $("div", {class: "groove"}));
+  const pad = 13, ticks = [];
+  for (let i = 0; i < steps; i++) { const k = $("div", {class: "tick"}); ticks.push(k); t.append(k); }
+  const thumb = $("div", {class: "thumb"}); t.append(thumb);
+  const y = i => pad + (len - 2 * pad) * i / (steps - 1);
+  const draw = () => { ticks.forEach((k, i) => k.style.top = y(i) + "px"); thumb.style.top = y(value) + "px"; };
+  const set = i => { i = Math.max(0, Math.min(steps - 1, i)); if (i !== value) { value = i; draw(); onchange(i); } };
+  const fromY = e => { const r = t.getBoundingClientRect(); set(Math.round((e.clientY - r.top - pad) / (len - 2 * pad) * (steps - 1))); };
+  t.addEventListener("pointerdown", e => { t.focus(); t.setPointerCapture(e.pointerId); fromY(e); });
+  t.addEventListener("pointermove", e => { if (t.hasPointerCapture(e.pointerId)) fromY(e); });
+  t.addEventListener("keydown", e => { if (/Up/.test(e.key)) set(value - 1); if (/Down/.test(e.key)) set(value + 1); });
+  draw(); t.set = i => { value = i; draw(); }; return t;
+}
+function spin(values, value, onchange) {
+  let i = Math.max(0, values.indexOf(value));
+  const show = $("span"), box = $("div", {class: "spin sunken", style: "padding:2px"});
+  const step = d => { const n = Math.max(0, Math.min(values.length - 1, i + d)); if (n !== i) { i = n; show.textContent = fmtMinutes(values[i]); onchange(values[i]); } };
+  let timer;
+  const hold = d => e => { e.preventDefault(); step(d); timer = setTimeout(function rep() { step(d); timer = setTimeout(rep, 80); }, 400); };
+  const stop = () => clearTimeout(timer);
+  const up = $("button", {type: "button", onpointerdown: hold(1), onpointerup: stop, onpointerleave: stop}, "▲");
+  const dn = $("button", {type: "button", onpointerdown: hold(-1), onpointerup: stop, onpointerleave: stop}, "▼");
+  box.append(show, $("div", {class: "arrows"}, up, dn));
+  box.addEventListener("wheel", e => { e.preventDefault(); step(e.deltaY < 0 ? 1 : -1); }, {passive: false});
+  show.textContent = fmtMinutes(values[i]);
+  box.value = () => values[i];
+  return box;
+}
+function listbox(height = 150) {
+  const l = $("div", {class: "list sunken", style: `height:${height}px`});
+  let sel = -1;
+  l.setItems = (items, onselect) => {
+    l.innerHTML = ""; sel = -1;
+    items.forEach((it, idx) => {
+      const r = $("div", {style: it.color ? `color:${it.color}` : ""}, it.text);
+      r.addEventListener("click", () => { [...l.children].forEach(c => c.classList.remove("sel")); r.classList.add("sel"); sel = idx; onselect && onselect(idx); });
+      l.append(r);
+    });
+  };
+  l.selected = () => sel;
+  return l;
+}
+function kv(style, ...cells) {
+  // label/value pairs in a two-column grid; each cell gets its own element
+  return $("div", {class: "kv", style}, cells.map(c => c && c.nodeType ? c : $("span", {}, c)));
+}
+function group(title, ...kids) { return $("fieldset", {}, $("legend", {}, title), ...kids); }
+
+// ---------------------------------------------------------------- windows and dialogs
+function windowFrame(title, onclose, onhelp, extraClass = "") {
+  const w = $("div", {class: "win " + extraClass});
+  const bar = $("div", {class: "title"}, icon("falcon", 16, "#0a246a"), $("span", {class: "t"}, title));
+  if (onhelp) bar.append($("button", {class: "cap", type: "button", title: "Help", onclick: onhelp}, "?"));
+  bar.append($("button", {class: "cap", type: "button", title: "Close", onclick: onclose}, "✕"));
+  const body = $("div", {class: "body"});
+  w.append(bar, body); w.body = body;
+  return w;
+}
+function dialog(title, build) {
+  return new Promise(resolve => {
+    const ov = $("div", {class: "overlay"});
+    const close = v => { ov.remove(); resolve(v); };
+    const w = windowFrame(title, () => close(null), null, "dlg");
+    build(w.body, close);
+    ov.append(w); document.body.append(ov);
+    ov.addEventListener("keydown", e => { if (e.key === "Escape") close(null); });
+    const f = w.querySelector("input,.btn.def"); if (f) setTimeout(() => f.focus(), 0);
+  });
+}
+function message(title, text, kind = "info", buttons = ["OK"], def = 0) {
+  if (kind === "error") sound("error");
+  return dialog(title, (body, close) => {
+    body.append($("div", {class: "icotext"}, icon(kind, 32), $("div", {style: "max-width:320px;padding-top:2px"}, txt(text))),
+      $("div", {class: "row", style: "justify-content:center;margin-top:14px;gap:6px"},
+        buttons.map((b, i) => button(b, () => close(b), {def: i === def}))));
+  });
+}
+function buttonRow(...btns) { return $("div", {class: "end", style: "margin-top:12px"}, ...btns); }
+
+// ---------------------------------------------------------------- server
+let TOKEN = sessionStorage.getItem("falconToken") || "";
+async function api(path, body) {
+  const opts = body === undefined ? {headers: {"X-Falcon-Token": TOKEN}}
+    : {method: "POST", headers: {"Content-Type": "application/json", "X-Falcon-Token": TOKEN}, body: JSON.stringify(body)};
+  let r;
+  try { r = await fetch(path, opts); } catch (e) { return {status: 0, data: {error: "FalconGuard on the PC can't be reached. Check that it's on and on the same network."}}; }
+  let data = {}; try { data = await r.json(); } catch (e) {}
+  if (r.status === 401 && path !== "/api/login") { TOKEN = ""; sessionStorage.removeItem("falconToken"); signIn(); }
+  return {status: r.status, data};
+}
+async function apiOrError(path, body, title = "Falcon") {
+  const r = await api(path, body);
+  if (r.status !== 200) { if (r.status !== 401) await message(title, r.data.error || "Something went wrong.", "error"); return null; }
+  return r.data;
+}
+
+// ---------------------------------------------------------------- app state
+const app = document.getElementById("app");
+let S = null, saved = null, pending = null, applyBtn = null, child = false;
+const C = () => S.constants;
+
+function closedScreen(text = "FalconGuard is closed.") {
+  app.innerHTML = "";
+  app.append($("div", {class: "closed"}, txt(text), $("div", {style: "margin-top:12px"}, button("Open FalconGuard", () => start()))));
+}
+async function start() {
+  app.innerHTML = "";
+  if (TOKEN) { const r = await api("/api/state"); if (r.status === 200) { S = r.data; return showMain(); } }
+  signIn();
+}
+async function signIn() {
+  app.innerHTML = "";
+  const hello = (await api("/api/hello")).data;
+  const pw = field({type: "password"});
+  const res = await dialog("Falcon Supervisor", (body, close) => {
+    const ok = async () => {
+      const r = await api("/api/login", {password: pw.input.value});
+      if (r.status === 200) { TOKEN = r.data.token; sessionStorage.setItem("falconToken", TOKEN); close("ok"); return; }
+      await message("Falcon Supervisor", r.data.error || "Couldn't sign in.", "error");
+      pw.input.value = ""; pw.input.focus();
+    };
+    pw.input.addEventListener("keydown", e => { if (e.key === "Enter") ok(); });
+    body.append($("div", {class: "icotext"}, icon("password", 32), txt(hello.has_password
+        ? "Falcon is protected by a supervisor password.\nType the password to change Falcon settings."
+        : "No supervisor password has been set up yet.\nCreate one in FalconGuard on the PC first.")),
+      $("div", {style: "margin:12px 0 3px"}, "Password:"), pw,
+      hello.has_password && hello.hint ? $("div", {class: "gray", style: "margin-top:5px"}, "Hint: " + hello.hint) : null,
+      $("div", {class: "row between", style: "margin-top:12px"}, button("Dashboard...", () => close("dashboard")),
+        $("div", {class: "end"}, button("OK", ok, {def: true}), button("Cancel", () => close(null)))),
+      $("div", {class: "gray", style: "margin-top:8px"}, txt("Not the supervisor? Click Dashboard to see your screen time\nor redeem a coupon.")));
+  });
+  if (res === "ok") { sound("logon"); S = (await api("/api/state")).data; showMain(); }
+  else if (res === "dashboard") showChild();
+  else closedScreen();
+}
+function editable() { return clone(S.settings); }
+function changed() { if (applyBtn) applyBtn.disabled = JSON.stringify(pending) === JSON.stringify(saved); }
+function load(state) { S = state; saved = editable(); pending = editable(); }
+
+// ---------------------------------------------------------------- main window
+let currentTab = 0;
+function showMain() {
+  load(S);
+  child = false;
+  render();
+}
+function render() {
+  app.innerHTML = "";
+  const titleText = child ? "Falcon Dashboard" : "Falcon Parental Controls";
+  const w = windowFrame(titleText, child ? () => closedScreen() : cancel, about);
+  const st = child ? null : S.sub_status;
+  if (st && ["warning", "critical", "expired"].includes(st.level)) {
+    const crit = st.level !== "warning";
+    w.body.append($("div", {class: "banner " + (crit ? "crit" : "warn")}, icon(crit ? "error" : "warning", 16, crit ? "#c00000" : "#ffffe1"), txt(st.text)));
+  }
+  const names = child ? ["Dashboard"] : ["Dashboard", "Content Filter", "Approved Sites", "General", "Time Management", "Zones", "My Account"];
+  const builders = child ? [dashboardPage] : [dashboardPage, filterPage, sitesPage, generalPage, timePage, zonesPage, accountPage];
+  if (currentTab >= names.length) currentTab = 0;
+  const tabs = $("div", {class: "tabs"}), sheet = $("div", {class: "sheet"});
+  names.forEach((n, i) => {
+    const b = $("button", {class: "tab" + (i === currentTab ? " on" : ""), type: "button"}, n);
+    const p = $("div", {class: "page" + (i === currentTab ? " on" : "")});
+    b.addEventListener("click", () => { currentTab = i; [...tabs.children].forEach((x, j) => x.classList.toggle("on", j === i)); [...sheet.children].forEach((x, j) => x.classList.toggle("on", j === i)); });
+    tabs.append(b); sheet.append(p); builders[i](p);
+  });
+  w.body.append(tabs, sheet);
+  if (child) w.body.append(buttonRow(button("Close", () => closedScreen(), {def: true})));
+  else {
+    applyBtn = button("Apply", () => apply(), {disabled: true});
+    w.body.append(buttonRow(button("OK", ok, {def: true}), button("Cancel", cancel), applyBtn));
+    changed();
+  }
+  const expired = !child && S.sub_status.level === "expired";
+  const on = !child && S.enabled && !expired;
+  w.append($("div", {class: "status"}, $("div", {class: "thin", style: "width:110px"}, child ? "Dashboard" : expired ? "Expired - off" : on ? "Falcon is on" : "Falcon is off"),
+    $("div", {class: "thin", style: "flex:1"}, "Draft " + (S.version || ""))));
+  app.append(w);
+}
+async function apply() {
+  const r = await apiOrError("/api/apply", {settings: pending});
+  if (r) { load(r.state); render(); return true; }
+  return false;
+}
+async function ok() { if (JSON.stringify(pending) === JSON.stringify(saved) || await apply()) close(); }
+function cancel() { close(); }
+async function close() { sound("logoff"); await api("/api/logout", {}); TOKEN = ""; sessionStorage.removeItem("falconToken"); closedScreen(); }
+function about() {
+  message("About Falcon", `FalconGuard for Windows\nDraft ${S.version}\n\nThis is an official release of FalconGuard. Configuration files are locked and cannot be edited, but can be viewed in the settings folder:\n\n${S.folder || ""}`);
+}
+async function refresh() { const r = await api("/api/state"); if (r.status === 200) { const keep = pending; S = r.data; saved = editable(); pending = keep; render(); } }
+
+// ---------------------------------------------------------------- child's Dashboard (no password)
+async function showChild() {
+  const r = await api("/api/public");
+  S = {dashboard: r.data.dashboard, constants: r.data.constants, version: r.data.version};
+  child = true; currentTab = 0; applyBtn = null; render();
+}
+
+// ---------------------------------------------------------------- Dashboard tab
+function dashboardPage(p) {
+  const d = S.dashboard, t = d.time;
+  const day = t.day;
+  let sub = !t.left ? "There is no screen time left today." : t.blocked_now && t.next_change != null ? `left today, from ${fmtHour(t.next_change)}` : "left today";
+  let sched = !t.schedule_on ? "Not used" : t.blocked_now ? (t.next_change != null ? `Blocked now, allowed from ${fmtHour(t.next_change)}` : "Blocked for the rest of the day")
+    : (t.next_change != null ? `Allowed now, blocked from ${fmtHour(t.next_change)}` : "Allowed for the rest of the day");
+  const total = t.budget != null ? t.budget : Math.max(t.allowed_left, 1);
+  const frac = total <= 0 ? 0 : Math.max(0, Math.min(1, t.left / total));
+  const prog = $("div", {class: "prog"});
+  const blocks = Math.floor(frac * 46);
+  for (let i = 0; i < blocks; i++) prog.append($("i"));
+  p.append(group(`Screen time today (${day})`,
+    $("div", {class: "icotext"}, icon("clock", 32), $("div", {}, $("div", {class: "big"}, t.left ? fmtMinutes(t.left) : "No time"), $("div", {}, sub))),
+    $("div", {style: "margin:10px 0 8px"}, prog),
+    kv("", "Daily limit:", fmtMinutes(t.limit), "Extra time today:", t.bonus ? "+" + fmtMinutes(t.bonus) : "None",
+      "Time used:", fmtMinutes(t.used), "Schedule:", sched),
+    $("div", {class: "gray", style: "margin-top:6px"}, d.child_account ? `Time counts while ${d.child_account} is using the mouse or keyboard.` : "Time used is counted once the supervisor chooses the child's account.")));
+  const code = field({width: 120, bold: true});
+  const redeemBtn = button("Redeem", () => redeem(), {disabled: true});
+  code.input.addEventListener("input", () => redeemBtn.disabled = !code.input.value.trim());
+  code.input.addEventListener("keydown", e => { if (e.key === "Enter") redeem(); });
+  async function redeem() {
+    const r = await api("/api/redeem", {code: code.input.value});
+    if (r.status !== 200) return message("Redeem a Coupon", r.data.error || "Something went wrong.", "error");
+    if (r.data.result === "missing") { await message("Redeem a Coupon", "That coupon code doesn't exist. Check the code and try again. Codes look like K7PD-3XQM.", "error"); return; }
+    if (r.data.result === "used") { await message("Redeem a Coupon", "This coupon has already been used.", "warning"); return; }
+    S.dashboard = r.data.dashboard; const t2 = S.dashboard.time;
+    let extra = t2.budget != null && t2.left < t2.budget ? `\n\nThe schedule still ends your screen time at ${fmtHour(t2.next_change == null ? 24 : t2.next_change)}, so you can't use all of it today.` : "";
+    await message("Redeem a Coupon", `You got ${fmtMinutes(r.data.result)} of extra screen time! You have ${t2.left ? fmtMinutes(t2.left) : "no time"} left today.${extra}`);
+    render();
+  }
+  p.append(group("Redeem a coupon",
+    $("div", {class: "icotext"}, icon("coupon", 32), txt("Got a coupon from your parent? Type the code to get\nextra screen time today.")),
+    $("div", {class: "row", style: "margin-top:8px"}, "Coupon code:", code, redeemBtn)));
+  const ready = d.coupons.filter(c => !c.redeemed).length;
+  p.append(group("Coupons", $("div", {class: "row between"}, txt(`${ready} coupon${ready !== 1 ? "s" : ""} ready to use. Open\nManage Coupons to see and copy the codes.`),
+    button("Manage Coupons...", manageCoupons))));
+}
+
+// ---------------------------------------------------------------- coupons dialog (password for create/delete)
+function manageCoupons() {
+  let unlocked = null;   // the password once typed
+  return dialog("Manage Coupons", (body, close) => {
+    const lockText = $("div"), unlockBtn = button("Unlock...", () => unlock());
+    const lockBar = $("div", {class: "row thin", style: "padding:5px 6px;margin-top:12px"}, icon("lock"), lockText, $("div", {style: "flex:1"}), unlockBtn);
+    const amount = spin(C().coupon_values || [15, 30, 45, 60, 90, 120, 180, 240], 30, () => {});
+    const note = field({width: 150});
+    const list = listbox(140), summary = $("div", {class: "gray", style: "margin-top:5px"});
+    const copyBtn = button("Copy Code", () => copy(), {disabled: true}), delBtn = button("Delete", () => del(), {disabled: true});
+    let rows = [];
+    function draw() {
+      lockText.innerHTML = "";
+      lockText.append(txt(unlocked ? "Unlocked. You can create and delete coupons." : "Anyone can copy a code and redeem it. Creating or\ndeleting coupons needs the supervisor password."));
+      unlockBtn.style.display = unlocked ? "none" : "";
+      const cs = S.dashboard.coupons;
+      rows = cs.filter(c => !c.redeemed).sort((a, b) => b.created.localeCompare(a.created)).concat(cs.filter(c => c.redeemed).sort((a, b) => b.redeemed.localeCompare(a.redeemed)));
+      list.setItems(rows.map(c => ({text: `${c.code}     +${fmtMinutes(c.minutes)}    ${c.redeemed ? "Used " + new Date(c.redeemed).toLocaleString([], {day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit"}) : "Ready"}${c.note ? "    " + c.note : ""}`, color: c.redeemed ? "#808080" : ""})),
+        () => { copyBtn.disabled = delBtn.disabled = false; });
+      copyBtn.disabled = delBtn.disabled = true;
+      const ready = rows.filter(c => !c.redeemed).length;
+      summary.textContent = `${ready} ready to use, ${rows.length - ready} used.`;
+    }
+    async function unlock() {
+      if (unlocked) return true;
+      if (child) { await message("Manage Coupons", "Creating or deleting coupons needs the supervisor. Sign in to FalconGuard as the supervisor first.", "warning"); return false; }
+      const pw = await askPassword("Type the supervisor password to\ncreate or delete coupons.");
+      if (pw == null) return false;
+      const r = await api("/api/verify", {password: pw});
+      if (!r.data.ok) { await message("Supervisor Password", "The password is incorrect. Check that Caps Lock is off, and then try again.", "error"); return false; }
+      unlocked = pw; draw(); return true;
+    }
+    async function create() {
+      if (!await unlock()) return;
+      const r = await apiOrError("/api/coupons/create", {password: unlocked, minutes: amount.value(), note: note.input.value.trim()});
+      if (!r) return;
+      load(r.state); note.input.value = ""; draw();
+      try { await navigator.clipboard.writeText(r.code); } catch (e) {}
+      await message("Coupon Created", `Coupon ${r.code} gives ${fmtMinutes(amount.value())} of extra screen time. Give this code to your child.`);
+    }
+    async function copy() {
+      const c = rows[list.selected()]; if (!c) return;
+      try { await navigator.clipboard.writeText(c.code); } catch (e) {}
+      await message("Copy Code", `${c.code} was copied.` + (c.redeemed ? "" : " Paste it into Coupon code on the Dashboard and click Redeem."));
+    }
+    async function del() {
+      const c = rows[list.selected()]; if (!c || !await unlock()) return;
+      const what = c.redeemed ? "used coupon" : "coupon. It can no longer be redeemed";
+      if (await message("Delete Coupon", `Delete ${c.code}? This removes the ${what}.`, "question", ["Yes", "No"], 1) !== "Yes") return;
+      const r = await apiOrError("/api/coupons/delete", {password: unlocked, code: c.code});
+      if (r) { load(r.state); draw(); }
+    }
+    body.append($("div", {class: "icotext"}, icon("coupon", 32), txt("Coupons give extra screen time. Create one, give the code to\nyour child, and they can redeem it once on the Dashboard.\nThe extra time counts for the day it is redeemed.")), lockBar,
+      $("div", {style: "margin-top:12px"}, group("Create a coupon", $("div", {class: "row", style: "flex-wrap:wrap"}, "Extra time:", amount, "Note:", note, button("Create", create)),
+        $("div", {class: "gray", style: "margin-top:5px"}, 'The note is optional, for example "Tidied bedroom".'))),
+      $("div", {style: "margin:4px 0 3px"}, "Coupons:"), $("div", {class: "row", style: "align-items:flex-start"}, $("div", {style: "flex:1;min-width:0"}, list), $("div", {style: "display:grid;gap:6px"}, copyBtn, delBtn)),
+      summary, buttonRow(button("Close", () => { close(); if (!child) render(); }, {def: true})));
+    draw();
+  });
+}
+function askPassword(text) {
+  const pw = field({type: "password"});
+  return dialog("Supervisor Password", (body, close) => {
+    pw.input.addEventListener("keydown", e => { if (e.key === "Enter") close(pw.input.value); });
+    body.append($("div", {class: "icotext"}, icon("password", 32), txt(text)), $("div", {style: "margin:12px 0 3px"}, "Password:"), pw,
+      buttonRow(button("OK", () => close(pw.input.value), {def: true}), button("Cancel", () => close(null))));
+  });
+}
+
+// ---------------------------------------------------------------- Content Filter tab
+function filterPage(p) {
+  const c = C();
+  const levelText = $("div", {style: "text-align:center;margin:1px 0 9px"}), desc = $("div", {style: "min-height:30px"});
+  const show = () => { levelText.textContent = `Level ${pending.web_filter_level}:  ${c.levels[pending.web_filter_level]}`; desc.textContent = c.level_text[pending.web_filter_level]; };
+  p.append($("div", {}, "Select a category to view the rating levels:"),
+    $("div", {class: "tree sunken", style: "margin:3px 0 9px"}, $("div", {}, icon("lock", 16, "#fff"), $("span", {}, "CloudflareFML")),
+      $("div", {style: "padding-left:19px"}, icon("key", 16, "#fff"), $("span", {class: "sel"}, "Web Filter"))),
+    $("div", {}, "Adjust the slider to specify what users are allowed to see:"),
+    $("div", {style: "margin-top:7px"}, trackbar(c.levels.length, pending.web_filter_level, v => { pending.web_filter_level = v; show(); changed(); })),
+    levelText,
+    group("Description", desc, $("div", {class: "row between", style: "margin-top:6px"}, "To read what each level blocks, click More Info.", button("More Info...", () => sound("error")))));
+  show();
+}
+
+// ---------------------------------------------------------------- Approved Sites tab
+function sitesPage(p) {
+  const site = field(), list = listbox(170);
+  const always = button("Always", () => add("always"), {disabled: true}), never = button("Never", () => add("never"), {disabled: true});
+  const remove = button("Remove", () => { const i = list.selected(); if (i >= 0) { pending.sites.splice(i, 1); draw(); changed(); } }, {disabled: true});
+  site.input.addEventListener("input", () => always.disabled = never.disabled = !site.input.value.trim());
+  site.input.addEventListener("keydown", e => { if (e.key === "Enter") add("always"); });
+  function draw() {
+    list.setItems(pending.sites.map(s => ({text: `${s.rule === "always" ? "Always" : "Never"}:   ${s.site}`, color: s.rule === "always" ? "#006000" : "#a00000"})), () => remove.disabled = false);
+    remove.disabled = true;
+  }
+  async function add(rule) {
+    const s = normalizeSite(site.input.value);
+    if (!s) { if (site.input.value.trim()) await message("Falcon", "Type a website address, such as www.example.com.", "warning"); return; }
+    pending.sites = pending.sites.filter(x => x.site !== s).concat([{site: s, rule}]).sort((a, b) => a.site.localeCompare(b.site));
+    site.input.value = ""; always.disabled = never.disabled = true; draw(); changed();
+  }
+  p.append($("div", {class: "icotext", style: "margin-bottom:12px"}, icon("sites", 32), txt("You can create a list of websites that are always\nviewable or never viewable regardless of how they\nare rated.")),
+    $("div", {style: "margin-bottom:3px"}, "Allow this website:"), $("div", {class: "row"}, site, always),
+    $("div", {style: "margin:12px 0 3px"}, "List of approved and blocked websites:"),
+    $("div", {class: "row", style: "align-items:flex-start"}, $("div", {style: "flex:1;min-width:0"}, list), $("div", {style: "display:grid;gap:6px"}, never, remove)));
+  draw();
+}
+
+// ---------------------------------------------------------------- General tab
+function generalPage(p) {
+  const expired = S.sub_status.level === "expired", on = S.enabled && !expired;
+  const toggle = button(on ? "Turn Off..." : "Turn On...", async () => {
+    const r = await apiOrError("/api/enabled", {on: !S.enabled});
+    if (!r) return;
+    const keep = pending; S = r.state; saved = editable(); pending = keep; render();
+    if (S.enabled && !S.settings.child_account) await message("Falcon", "Falcon is on. Next, choose the child's Windows account under Child's account on this tab, and click Apply.", "warning");
+    else if (S.enabled) await message("Falcon", `Falcon is on. Screen time and the web filter are enforced on ${S.settings.child_account}'s account while Falcon runs there.`);
+  }, {disabled: expired});
+  const mon = S.monitor || {running: false, text: ""};
+  p.append(group("Falcon", $("div", {class: "row between"}, $("div", {class: "icotext"}, icon("falcon", 32),
+    txt(expired ? "Protection is off because your\nsubscription has expired." : on ? "Falcon is on. Screen time and the web\nfilter are enforced on the child's\naccount." : "Falcon is off. Nothing is counted\nor blocked.")), toggle),
+    $("div", {class: "row", style: "margin-top:8px;align-items:flex-start"}, icon(mon.running ? "trusted" : "warning"), $("div", {}, mon.text))));
+  const acct = field({width: 160, value: pending.child_account});
+  acct.input.addEventListener("input", () => { pending.child_account = acct.input.value.trim().slice(0, 100); changed(); });
+  p.append(group("Child's account", txt("Falcon counts screen time and filters websites only on this\nWindows account:"),
+    $("div", {class: "row between", style: "margin-top:6px"}, acct, button("Use Signed-in Account", () => { acct.input.value = (S.accounts || [""])[0]; pending.child_account = acct.input.value; changed(); }))));
+  p.append(group("User options", C().options.map(([k, label]) => checkbox(label, pending.options[k], v => { pending.options[k] = v; changed(); }))));
+  p.append(group("Supervisor password", $("div", {class: "icotext"}, icon("password", 32), txt("The supervisor password lets you change Falcon\nsettings or turn Falcon on or off. To change the\nsupervisor password, click Change Password.")),
+    $("div", {class: "end", style: "margin-top:8px"}, button("Change Password...", changePassword))));
+  p.append(group("Activity log", $("div", {class: "row between"}, txt("Falcon records sign-ins, wrong passwords and\nevery change to its settings."), button("View Log...", viewLog))));
+}
+function changePassword() {
+  const old = field({type: "password"}), nw = field({type: "password"}), conf = field({type: "password"}), hint = field({value: S.hint || ""});
+  return dialog("Change Supervisor Password", (body, close) => {
+    const okf = async () => {
+      const r = await api("/api/password", {old: old.input.value, new: nw.input.value, confirm: conf.input.value, hint: hint.input.value});
+      if (r.status === 200) { close(true); await message("Supervisor Password", "The supervisor password was changed."); refresh(); return; }
+      await message("Supervisor Password", r.data.error || "Something went wrong.", "error");
+      const f = {old, new: nw, confirm: conf, hint}[r.data.field]; if (f) { if (r.data.field === "confirm") f.input.value = ""; f.input.focus(); f.input.select(); }
+    };
+    const grid = $("div", {style: "display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;margin-top:12px"},
+      "Old password:", old, "New password:", nw, "Confirm password:", conf, "Hint (optional):", hint);
+    body.append($("div", {class: "icotext"}, icon("password", 32), txt("Type the old password, and then type the new password\ntwice to confirm it.")), grid,
+      $("div", {class: "gray", style: "margin-top:4px"}, "The hint helps you remember the password. Anyone can see it."),
+      buttonRow(button("OK", okf, {def: true}), button("Cancel", () => close(null))));
+  });
+}
+function viewLog() {
+  return dialog("Falcon Activity Log", async (body, close) => {
+    const list = listbox(260), count = $("div", {class: "gray", style: "margin-top:5px"});
+    const fill = entries => {
+      list.setItems(entries.map(e => ({text: `${e.time.replace("T", "   ").slice(0, 18)}      ${e.event}`, color: /Wrong|locked/.test(e.event) ? "#a00000" : ""})));
+      count.textContent = entries.length ? `${entries.length} ${entries.length === 1 ? "entry" : "entries"}` : "The log is empty.";
+    };
+    body.style.width = "min(560px, calc(100vw - 32px))";
+    body.append($("div", {class: "icotext"}, icon("log", 32), txt("Falcon records sign-ins, wrong passwords and every change\nto its settings. The newest entries are at the top.")),
+      $("div", {style: "margin-top:12px"}, list), count,
+      buttonRow(button("Clear Log...", async () => {
+        if (await message("Clear Activity Log", "Are you sure you want to delete every entry in the activity log?", "question", ["Yes", "No"], 1) !== "Yes") return;
+        const r = await apiOrError("/api/log/clear", {}); if (r) fill(r.entries);
+      }), button("Close", () => close(null), {def: true})));
+    const r = await apiOrError("/api/log", {}); if (r) fill(r.entries);
+  });
+}
+
+// ---------------------------------------------------------------- Time Management tab
+function timePage(p) {
+  const days = C().days, notes = [];
+  const table = $("table", {class: "hours"});
+  let paint = null;
+  const head1 = $("tr", {}, $("th", {class: "day"}), $("th", {colspan: 12, class: "bold"}, "Midnight (AM)"), $("th", {colspan: 12, class: "bold", style: "border-left:1px solid #000;padding-left:3px"}, "Noon (PM)"));
+  const head2 = $("tr", {}, $("th", {class: "day"}));
+  for (let h = 0; h < 24; h++) {
+    const th = $("th", {class: "h"}, $("span", {}, String(h % 12 || 12)));
+    th.addEventListener("click", () => { const all = days.every((_, d) => pending.blocked_hours[d].includes(h)); days.forEach((_, d) => setCell(d, h, !all)); update(); });
+    head2.append(th);
+  }
+  head2.append($("th", {class: "h", style: "width:8px"}, $("span", {}, "12")));
+  table.append(head1, head2);
+  const cells = days.map((name, d) => {
+    const tr = $("tr", {}), th = $("th", {class: "day"}, name);
+    th.addEventListener("click", () => { const all = pending.blocked_hours[d].length === 24; for (let h = 0; h < 24; h++) setCell(d, h, !all); update(); });
+    tr.append(th);
+    const row = [];
+    for (let h = 0; h < 24; h++) {
+      const td = $("td", {class: pending.blocked_hours[d].includes(h) ? "b" : ""});
+      td.dataset.d = d; td.dataset.h = h;
+      td.addEventListener("pointerdown", e => { e.preventDefault(); table.setPointerCapture(e.pointerId); paint = !pending.blocked_hours[d].includes(h); setCell(d, h, paint); update(); });
+      row.push(td); tr.append(td);
+    }
+    table.append(tr); return row;
+  });
+  table.addEventListener("pointermove", e => {
+    if (paint == null) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el && el.dataset && el.dataset.h != null) { setCell(+el.dataset.d, +el.dataset.h, paint); update(); }
+  });
+  table.addEventListener("pointerup", () => paint = null);
+  function setCell(d, h, blocked) {
+    const set = new Set(pending.blocked_hours[d]);
+    blocked ? set.add(h) : set.delete(h);
+    pending.blocked_hours[d] = [...set].sort((a, b) => a - b);
+    cells[d][h].className = blocked ? "b" : "";
+  }
+  function update() { notes.forEach((n, d) => n.textContent = `of ${24 - pending.blocked_hours[d].length}h`); changed(); }
+  p.append($("div", {}, txt("Choose the hours when the user can use the computer, how much\ntime they can spend on it each day, and give extra time today.")),
+    $("div", {style: "margin-top:8px"}, group("Allowed hours", $("div", {class: "gridwrap"}, table),
+      $("div", {class: "row between", style: "margin-top:8px;flex-wrap:wrap"}, $("div", {}, $("span", {class: "legend", style: "background:#fff"}), "Allowed  ", $("span", {class: "legend", style: "background:#6a96e8;margin-left:10px"}), "Blocked"),
+        $("div", {class: "gray"}, "Click or drag across squares to change them.")))));
+  // Sunday-Wednesday on the left, Thursday-Saturday on the right, like the window
+  const limits = $("div", {style: "display:grid;grid-template-columns:auto auto auto 1fr auto auto auto;gap:4px 6px;align-items:center"});
+  for (let r = 0; r < 4; r++) {
+    limits.append(...cellsFor(r), $("span"));
+    if (r + 4 < 7) limits.append(...cellsFor(r + 4)); else limits.append($("span"), $("span"), $("span"));
+  }
+  function cellsFor(d) {
+    const n = $("span", {class: "gray"}); notes[d] = n;
+    return [$("span", {}, days[d]), spin(C().limit_values, pending.daily_limits[d], v => { pending.daily_limits[d] = v; changed(); }), n];
+  }
+  p.append(group("Daily time limit", $("div", {style: "margin-bottom:6px"}, "Set the most time the user can spend on the computer each day."), limits));
+  const extra = spin(C().coupon_values, 30, () => {});
+  const bonus = S.dashboard.time.bonus;
+  const removeBtn = button("Remove Extra Time", async () => {
+    if (await message("Remove Extra Time", "Remove all of today's extra time, including time from coupons redeemed today?", "question", ["Yes", "No"], 1) !== "Yes") return;
+    const r = await apiOrError("/api/extra/remove", {}); if (r) { const keep = pending; S = r.state; saved = editable(); pending = keep; render(); }
+  }, {disabled: !bonus});
+  p.append(group("Extra time today",
+    $("div", {class: "row between"}, $("div", {class: "row"}, "Give extra screen time for today only:", extra), button("Add Time", async () => {
+      const r = await apiOrError("/api/extra", {minutes: extra.value()});
+      if (!r) return;
+      const keep = pending; S = r.state; saved = editable(); pending = keep;
+      const t = S.dashboard.time;
+      const capped = t.budget != null && t.left < t.budget ? ` The schedule on this tab ends screen time at ${fmtHour(t.next_change == null ? 24 : t.next_change)}, so not all of it can be used today.` : "";
+      await message("Extra Time", `${fmtMinutes(extra.value())} of extra screen time was added for today. Today's extra time is now ${fmtMinutes(t.bonus)}.\n\nScreen time left today: ${fmtMinutes(t.left)}.${capped}`);
+      render();
+    })),
+    $("div", {class: "row between", style: "margin-top:6px"}, $("div", {class: "gray"}, bonus ? `+${fmtMinutes(bonus)} extra today, from here and from coupons.` : "No extra time has been given today."), removeBtn)));
+  update(); applyBtn && changed();
+}
+
+// ---------------------------------------------------------------- Zones tab
+let currentZone = 2;
+function zonesPage(p) {
+  const zones = C().zones, prot = C().protection, def = C().default_zone;
+  const strip = $("div", {class: "zones sunken"}), info = $("div", {class: "row", style: "align-items:flex-start;margin:9px 0 10px"});
+  const lines = $("div"), defBtn = button("Default Level", () => { vt.set(def[zones[currentZone][0]]); level(def[zones[currentZone][0]]); });
+  const vt = vtrackbar(prot.length, 0, v => level(v));
+  function level(v) { pending.zones[zones[currentZone][0]].level = v; drawLines(); changed(); }
+  function drawLines() {
+    const kind = zones[currentZone][0], v = pending.zones[kind].level;
+    lines.innerHTML = ""; lines.append($("div", {class: "bold", style: "margin-bottom:2px"}, prot[v][0]), ...prot[v][1].map(l => $("div", {}, l)));
+    defBtn.disabled = v === def[kind];
+  }
+  function pick(i) {
+    currentZone = i; const [kind, name, desc] = zones[i];
+    [...strip.children].forEach((c, j) => {
+      c.classList.toggle("sel", j === i);
+      c.firstChild.innerHTML = iconSvg(zones[j][0], 32, "#fff", j === i);
+    });
+    const n = pending.zones[kind].sites.length;
+    info.innerHTML = "";
+    info.append(icon(kind, 32), $("div", {style: "flex:1"}, $("div", {class: "bold"}, name), $("div", {style: "margin-top:2px"}, txt(desc))),
+      $("div", {style: "display:grid;gap:6px;justify-items:end"}, button("Sites...", () => zoneSites(kind, name), {disabled: kind === "internet"}),
+        $("div", {}, kind === "internet" ? "Includes every other website." : n === 0 ? "No sites are in this zone." : n === 1 ? "1 site is in this zone." : `${n} sites are in this zone.`)));
+    vt.set(pending.zones[kind].level); drawLines();
+  }
+  zones.forEach(([kind, name], i) => { const c = $("div", {}, icon(kind, 32, "#fff"), $("div", {style: "margin-top:4px"}, $("span", {class: "name"}, name))); c.addEventListener("click", () => pick(i)); strip.append(c); });
+  async function zoneSites(kind, name) {
+    let sites = [...pending.zones[kind].sites];
+    const res = await dialog(name, (body, close) => {
+      const f = field(), list = listbox(130);
+      const addBtn = button("Add", () => add(), {disabled: true}), rem = button("Remove", () => { const i = list.selected(); if (i >= 0) { sites.splice(i, 1); draw(); } }, {disabled: true});
+      f.input.addEventListener("input", () => addBtn.disabled = !f.input.value.trim());
+      f.input.addEventListener("keydown", e => { if (e.key === "Enter") add(); });
+      const draw = () => { list.setItems(sites.map(s => ({text: s})), () => rem.disabled = false); rem.disabled = true; };
+      async function add() {
+        const s = normalizeSite(f.input.value);
+        if (!s) { await message("Falcon", "Type a website address, such as www.example.com.", "warning"); return; }
+        if (!sites.includes(s)) sites = [...sites, s].sort();
+        f.input.value = ""; addBtn.disabled = true; draw();
+      }
+      body.append($("div", {class: "icotext"}, icon(kind === "restricted" ? "restricted" : "trusted", 32), txt("You can add and remove websites from this zone. All websites\nin this zone will use the zone's protection level.")),
+        $("div", {style: "margin:12px 0 3px"}, "Add this website to the zone:"), $("div", {class: "row"}, f, addBtn),
+        $("div", {style: "margin:10px 0 3px"}, "Websites:"), $("div", {class: "row", style: "align-items:flex-start"}, $("div", {style: "flex:1;min-width:0"}, list), rem),
+        buttonRow(button("OK", () => close(sites), {def: true}), button("Cancel", () => close(null))));
+      draw();
+    });
+    if (res) { pending.zones[kind].sites = res; changed(); pick(currentZone); }
+  }
+  p.append($("div", {}, "Select a web content zone to specify its protection settings."), $("div", {style: "margin-top:3px"}, strip), info,
+    group("Protection level for this zone", $("div", {}, "Move the slider to set the protection level for this zone."),
+      $("div", {class: "row", style: "align-items:flex-start;margin:8px 0 6px"}, vt, lines),
+      $("div", {class: "end"}, button("Custom Level...", () => message("Custom Level", "Custom protection levels will be added in a later version of Falcon.")), defBtn)));
+  pick(currentZone);
+}
+
+// ---------------------------------------------------------------- My Account tab
+function accountPage(p) {
+  const sub = S.subscription, st = S.sub_status;
+  const expires = sub ? new Date(sub.expires + "T00:00:00").toLocaleDateString("en-GB", {day: "numeric", month: "long", year: "numeric"}) : "Unknown";
+  const statusText = {ok: "Active", warning: "Expires soon", critical: "Expires tomorrow", expired: "Expired", unknown: "Not checked yet"}[st.level];
+  const checked = sub && sub.checked ? "Last checked " + new Date(sub.checked).toLocaleString("en-GB", {day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"}).replace(",", " at") + "." : "Falcon couldn't reach the subscription service yet.";
+  const red = ["critical", "expired"].includes(st.level);
+  const check = button("Check Now", async () => {
+    check.disabled = true;
+    const r = await apiOrError("/api/subscription/check", {});
+    check.disabled = false;
+    if (!r) return;
+    const keep = pending; S = r.state; saved = editable(); pending = keep; render();
+    if (!r.reached) await message("My Account", "Falcon couldn't reach the subscription service. Check the internet connection and try again.", "error");
+  });
+  p.append($("div", {class: "icotext"}, icon("falcon", 32), txt("Your FalconGuard subscription. Falcon checks it when it starts\nand every hour. Click Check Now to check straight away.")),
+    $("div", {style: "margin-top:12px"}, group("Subscription",
+      kv("gap:6px 16px", "Falcon Edition:", $("b", {}, sub ? sub.edition : "Unknown"), "Price:", S.price, "Expires on:", expires,
+        "Days remaining:", $("b", {style: red ? "color:#a00000" : ""}, S.days_left), "Status:", statusText),
+      $("div", {class: "row between", style: "margin-top:10px"}, $("span", {class: "gray"}, checked), check))),
+    group("When your subscription ends", txt("3 days before: a warning appears at the top of this window.\n1 day before: a critical warning appears.\nOn the day it ends: protection turns off and can't be turned\nback on until the subscription is renewed.")));
+}
+
+start();
+</script>
+</body>
+</html>

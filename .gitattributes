@@ -1,0 +1,4 @@
+# cmd.exe needs Windows line endings in batch files: store build.bat exactly as it is
+# (CRLF), so downloads from the GitHub website work too
+*.bat -text
+*.mp3 binary
