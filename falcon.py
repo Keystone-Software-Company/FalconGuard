@@ -425,7 +425,6 @@ class Store:
         self.guard_path = self.folder / "guard.json"        # written only by the guard (SYSTEM)
         self.secret_path = self.folder / "secret.json"      # readable only by admins/SYSTEM
         self.supervisor_path = self.folder / "supervisor.json"
-        self.subscription_path = self.folder / "subscription.json"   # last answer from the gist
         if not folder and sys.platform == "win32":
             self._migrate_from_appdata()
 
@@ -524,30 +523,6 @@ class Store:
             except OSError:
                 return None
         return None
-
-    # subscription.json: the last subscription details read from the gist. Written by the
-    # supervisor's window and the guard (SYSTEM); only read on the child's account, so the
-    # expiry date still applies when the gist can't be reached.
-    def load_subscription(self):
-        raw = self._read_json(self.subscription_path, None)
-        sub = parse_subscription(raw)
-        if sub:
-            sub["checked"] = str(raw.get("checked", ""))
-        return sub
-
-    def save_subscription(self, sub):
-        try:
-            self._write_json(self.subscription_path, sub)
-        except OSError:
-            pass
-
-    def refresh_subscription(self, fetch=None):
-        """Use the gist if it can be reached (saving the answer), otherwise the saved copy."""
-        sub = (fetch or fetch_subscription)()
-        if sub:
-            self.save_subscription(sub)
-            return sub
-        return self.load_subscription()
 
     # supervisor.json: "a supervisor is signed in right now" heartbeat
     def supervisor_heartbeat(self, seconds=20):
@@ -899,12 +874,14 @@ def _dns_cache_api():
             e = e.contents.pNext
     finally:
         dns.DnsFree(table, 1)                       # DnsFreeRecordList
-    entries = {}
+    entries, codes = {}, {}
     for name, rtype in wanted:
         host = name.lower().rstrip(".")
         ips = entries.setdefault(host, set())
         rec = ctypes.POINTER(RECORD)()
-        if dns.DnsQuery_W(name, rtype, 0x10, None, ctypes.byref(rec), None) != 0:   # NO_WIRE_QUERY
+        code = dns.DnsQuery_W(name, rtype, 0x10, None, ctypes.byref(rec), None)   # NO_WIRE_QUERY
+        codes[code] = codes.get(code, 0) + 1
+        if code != 0:
             continue                                # e.g. a "no such name" entry
         try:
             r = rec
@@ -917,6 +894,7 @@ def _dns_cache_api():
                 r = c.pNext
         finally:
             dns.DnsFree(rec, 1)
+    DNS_READ["api_codes"] = ", ".join(f"{c}x{n}" for c, n in sorted(codes.items()))
     return entries
 
 
@@ -928,11 +906,26 @@ def dns_cache_entries():
             return {n: set() for n in dns_cache_names()}
         except Exception:
             return {}
-    try:
-        return _dns_cache_api()
-    except Exception:
-        pass                                        # fall back to ipconfig
-    return parse_displaydns_entries(_displaydns())   # errors reach the watcher, which logs them
+    if DNS_READ["method"] != "ipconfig":
+        try:
+            entries = _dns_cache_api()
+            if not entries or any(entries.values()):
+                DNS_READ["method"] = "windows"
+                return entries
+            # names but not one address: this Windows doesn't answer cache-only questions
+            DNS_READ["api_fails"] = DNS_READ.get("api_fails", 0) + 1
+            if DNS_READ["api_fails"] >= 3:
+                DNS_READ["method"] = "ipconfig"     # stop asking; use ipconfig from now on
+        except Exception as e:
+            DNS_READ["api_codes"] = f"{type(e).__name__}: {e}"
+            DNS_READ["method"] = "ipconfig"
+    entries = parse_displaydns_entries(_displaydns())   # errors reach the watcher, which logs them
+    if DNS_READ["method"] != "ipconfig":
+        DNS_READ["method"] = "ipconfig (this time)"
+    return entries
+
+
+DNS_READ = {"method": "", "api_codes": ""}   # how Windows' list of lookups is being read
 
 
 def dns_cache_names():
@@ -1541,122 +1534,6 @@ class SiteChecker:
             return None
 
 
-# --- Subscription (read from a GitHub gist) --------------------------------------------
-# Put the "Raw" address of your gist here (open the gist, click "Raw", copy the address and
-# remove the long commit id from it so it always gives the newest version), e.g.
-#   https://gist.githubusercontent.com/<your-user>/<gist-id>/raw/falcon-subscription.json
-# The gist file holds JSON like:
-#   {"expires": "2026-12-31", "price": 4.99, "currency": "USD", "edition": "Home"}
-SUBSCRIPTION_URL = os.environ.get(
-    "FALCON_SUBSCRIPTION_URL",
-    "https://gist.githubusercontent.com/keystonetechnologies-official/"
-    "4fe1b691d4a65ed52f7be2d018947433/raw/falconsubscription.json")
-SUBSCRIPTION_REFRESH_SECONDS = 3600     # check the gist every hour
-WARN_DAYS, CRITICAL_DAYS = 3, 1
-CURRENCY_SIGNS = {"USD": "$", "GBP": "£", "EUR": "€", "CAD": "CA$", "AUD": "A$",
-                  "NZD": "NZ$", "INR": "₹", "JPY": "¥"}
-
-
-def parse_subscription(data):
-    """Check the gist's JSON. Returns a clean dict, or None if it isn't valid."""
-    if not isinstance(data, dict):
-        return None
-    try:
-        y, m, d = (int(x) for x in str(data["expires"]).strip()[:10].split("-"))
-        # a day past the end of the month (e.g. 2026-11-31) means the last day of that month
-        import calendar
-        expires = datetime(y, m, min(max(d, 1), calendar.monthrange(y, m)[1])).date()
-    except (KeyError, ValueError, TypeError):
-        return None
-    try:
-        price = round(float(data.get("price", 0)), 2)
-    except (TypeError, ValueError):
-        price = None
-    return {"expires": expires.isoformat(), "price": price,
-            "currency": str(data.get("currency", "USD")).upper()[:5],
-            "edition": str(data.get("edition", "")).strip()[:40] or "Unknown"}
-
-
-def fetch_subscription(url=None, timeout=8):
-    """Download the subscription details. None if the gist can't be reached or is invalid."""
-    url = url or SUBSCRIPTION_URL
-    if "YOUR-GIST-ID" in url:
-        return None
-    # GitHub keeps raw gist files in its cache for 5 minutes; a unique query string makes it
-    # send the newest version every time.
-    url += ("&" if "?" in url else "?") + f"t={time.time_ns()}"
-    req = urllib.request.Request(url, headers={"user-agent": "Falcon", "cache-control": "no-cache"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read().decode("utf-8-sig"))
-    except Exception:
-        # A fresh Windows may not have the certificate Python needs yet; Windows' own
-        # downloader fetches missing certificates by itself.
-        if not IS_WINDOWS:
-            return None
-        ok, text = run_quiet(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                              f"(Invoke-WebRequest -UseBasicParsing -Uri '{url}').Content"],
-                             timeout=timeout + 20)
-        try:
-            data = json.loads(text) if ok else None
-        except ValueError:
-            data = None
-        if data is None:
-            return None
-    sub = parse_subscription(data)
-    if sub:
-        sub["checked"] = datetime.now().isoformat(timespec="seconds")
-    return sub
-
-
-def subscription_status(sub, today=None):
-    """{"level": unknown|ok|warning|critical|expired, "days": days left, "text": ...}"""
-    if not sub:
-        return {"level": "unknown", "days": None,
-                "text": "Falcon couldn't check your subscription yet."}
-    today = today or datetime.now().date()
-    expires = datetime.strptime(sub["expires"], "%Y-%m-%d").date()
-    days = (expires - today).days
-    on = expires.strftime("%d %B %Y").lstrip("0")
-    if days <= 0:
-        return {"level": "expired", "days": days,
-                "text": f"Your Falcon subscription expired on {on}. Protection is turned off "
-                        "and can't be turned back on until you renew."}
-    if days <= CRITICAL_DAYS:
-        return {"level": "critical", "days": days,
-                "text": f"Your Falcon subscription expires tomorrow ({on}). Renew it today or "
-                        "protection will be turned off."}
-    if days <= WARN_DAYS:
-        return {"level": "warning", "days": days,
-                "text": f"Your Falcon subscription expires in {days} days, on {on}. Renew it "
-                        "to keep protection on."}
-    return {"level": "ok", "days": days, "text": f"Active until {on}."}
-
-
-def subscription_expired(sub, today=None):
-    return subscription_status(sub, today)["level"] == "expired"
-
-
-def fmt_price(sub):
-    if not sub or sub.get("price") is None:
-        return "Unknown"
-    if sub["price"] == 0:
-        return "Free"
-    sign = CURRENCY_SIGNS.get(sub["currency"])
-    amount = f"{sub['price']:.2f}"
-    return f"{sign}{amount} per month" if sign else f"{amount} {sub['currency']} per month"
-
-
-def fmt_days_left(days):
-    if days is None:
-        return "Unknown"
-    if days < 0:
-        return f"Expired {-days} day{'s' if days != -1 else ''} ago"
-    if days == 0:
-        return "Expired today"
-    return f"{days} day{'s' if days != 1 else ''}"
-
-
 # --- Shared edits (used by the FalconGuard window and the web dashboard) -------------
 def add_coupon(s, minutes, note):
     code = new_coupon_code({c["code"] for c in s["coupons"]})
@@ -1808,22 +1685,8 @@ def run_guard(store, now=None, find_session=child_session, lock_session=disconne
     now = now or time.time()
     settings = store.load()
     child = settings.get("child_account", "")
-    sub = store.load_subscription()
-    guard0 = store.load_guard()
-    stale = not sub or time.time() - _iso_to_ts(sub.get("checked", "")) > SUBSCRIPTION_REFRESH_SECONDS
-    urgent = subscription_status(sub)["level"] in ("critical", "expired")
-    wait = 300 if urgent else SUBSCRIPTION_REFRESH_SECONDS   # near/after expiry: every 5 minutes
-    if (stale or urgent) and time.time() - guard0.get("sub_attempt", 0) > wait:
-        guard0["sub_attempt"] = time.time()     # try at most once an hour, even when offline
-        try:
-            store.save_guard(guard0)
-        except OSError:
-            pass
-        sub = store.refresh_subscription()
-    protecting = settings["enabled"] and bool(child) and not subscription_expired(sub)
+    protecting = settings["enabled"] and bool(child)
     note = apply_child_browser_settings(store, settings, child, protecting)
-    if subscription_expired(sub):
-        return ["The subscription has expired: protection is off."] + note
     if not settings["enabled"] or not child:
         return ["Falcon is off or no child account is chosen."] + note
     found, tamper = [], []
@@ -2283,12 +2146,9 @@ def self_test(store, try_lock=False):
         f"not running (sign in to {settings.get('child_account') or 'the child'}'s account)")
     if running:
         if diag.get("protecting"):
-            add("Protection is on", True, f"Web Filter level {LEVEL_NAMES[diag.get('level', 1)]}, "
-                f"subscription until {diag.get('sub_expires') or 'unknown'}")
+            add("Protection is on", True, f"Web Filter level {LEVEL_NAMES[diag.get('level', 1)]}")
         else:
-            why = ("Falcon is turned off" if not diag.get("enabled") else
-                   f"the subscription it has saved ends {diag.get('sub_expires')}" if diag.get("expired")
-                   else "not started yet")
+            why = "Falcon is turned off" if not diag.get("enabled") else "not started yet"
             add("Protection is on", False, why)
         cycle_age = time.time() - diag.get("cycle", 0)
         add("Website filter is checking", cycle_age < 30 and diag.get("active") is not False,
@@ -2297,6 +2157,8 @@ def self_test(store, try_lock=False):
             f"{diag.get('connections', 'no')} browser connections"
             + (f" ({diag['unmatched']} to addresses not in Windows' list)" if diag.get("unmatched") else "")
             + (f", each check takes {diag['check_ms']} ms" if "check_ms" in diag else "")
+            + (f", read with {diag['dns_method']}" if diag.get("dns_method") else "")
+            + (f" (Windows answered {diag['dns_codes']})" if diag.get("dns_codes") else "")
             + (f", last blocked: {diag['last_block']}" if diag.get("last_block") else "")
             + (f", problem: {diag['problem']}" if diag.get("problem") else ""))
     try:
@@ -2494,9 +2356,6 @@ class WebDashboard:
         self.sessions[token] = time.time() + WEB_SESSION_SECONDS
         return True
 
-    def subscription(self):
-        return self.store.load_subscription()
-
     def dashboard_data(self, s):
         used = self.store.used_seconds_today()
         t = screen_time(s, used_seconds=used, bonus=bonus_today(s, self.store.load_state(),
@@ -2507,17 +2366,12 @@ class WebDashboard:
 
     def full_state(self):
         s = self.store.load()
-        sub = self.subscription()
         return {
             "settings": {k: s[k] for k in EDITABLE},
             "enabled": s["enabled"],
             "has_password": bool(s["password"]),
             "hint": s["hint"],
             "dashboard": self.dashboard_data(s),
-            "subscription": sub,
-            "sub_status": subscription_status(sub),
-            "price": fmt_price(sub),
-            "days_left": fmt_days_left(subscription_status(sub)["days"]),
             "version": VERSION,
             "folder": str(self.store.folder),
             "accounts": [u for _, u in wts_sessions()] or [current_user()],
@@ -2621,11 +2475,6 @@ class WebDashboard:
                 self.store.clear_log()
                 self.log("Activity log cleared", ip)
                 return 200, {"entries": self.store.read_log()[::-1]}
-            if path == "/api/subscription/check":
-                sub = fetch_subscription()
-                if sub:
-                    self.store.save_subscription(sub)
-                return 200, {"reached": bool(sub), "state": self.full_state()}
         return 404, {"error": "Not found"}
 
     def login(self, password, ip):
@@ -2693,10 +2542,6 @@ class WebDashboard:
 
     def set_enabled(self, on, ip):
         s = self.store.load()
-        if on and subscription_expired(self.subscription()):
-            return 403, {"error": "Your Falcon subscription has expired, so protection can't be "
-                                  "turned on. Renew your subscription, then click Check Now on "
-                                  "the My Account tab."}
         s["enabled"] = on
         self.store.save(s)
         self.log("Falcon turned on" if on else "Falcon turned off", ip)
@@ -2888,6 +2733,7 @@ class TrayIcon:
         self.actions = queue.Queue()
         self.tip = tip
         self.hwnd = None
+        self.shown = False          # is the icon in the notification area?
         self._thread = None
 
     def start(self):
@@ -2936,7 +2782,7 @@ class TrayIcon:
         nid.uCallbackMessage = self.WM_TRAY
         nid.hIcon = self.hicon
         nid.szTip = self.tip
-        ctypes.windll.shell32.Shell_NotifyIconW(action, ctypes.byref(nid))
+        return bool(ctypes.windll.shell32.Shell_NotifyIconW(action, ctypes.byref(nid)))
 
     def _run(self):
         import ctypes
@@ -2962,8 +2808,14 @@ class TrayIcon:
                     elif event == 0x0205:                     # right click
                         self._menu(hwnd)
                     return 0
-                if msg == taskbar_created:                    # Explorer restarted
-                    self._notify(0)
+                if msg == taskbar_created:                    # Explorer (re)started
+                    self.shown = self._notify(0)
+                    return 0
+                if msg == 0x0113 and wparam == 1:             # WM_TIMER: is the icon there?
+                    # At sign-in FalconGuard can start before the taskbar is ready, and then
+                    # Windows refuses the icon. Keep trying; put it back if it disappears.
+                    if not (self.shown and self._notify(1)):  # NIM_MODIFY fails if it's gone
+                        self.shown = self._notify(0)          # NIM_ADD
                     return 0
                 if msg == 0x0002:                             # WM_DESTROY
                     self._notify(2)                           # NIM_DELETE
@@ -2986,10 +2838,12 @@ class TrayIcon:
             self.hwnd = u.CreateWindowExW(0, "FalconGuardTray", "FalconGuard", 0, 0, 0, 0, 0,
                                           None, None, wc.hInstance, None)
             icon = falcon_icon_path()
-            self.hicon = u.LoadImageW(None, str(icon), 1, 16, 16, 0x10) if icon else None  # IMAGE_ICON, LR_LOADFROMFILE
+            px = u.GetSystemMetrics(49) or 16                 # SM_CXSMICON: tray icon size for this screen
+            self.hicon = u.LoadImageW(None, str(icon), 1, px, px, 0x10) if icon else None  # IMAGE_ICON, LR_LOADFROMFILE
             if not self.hicon:
                 self.hicon = u.LoadIconW(None, wintypes.LPCWSTR(32512))                     # IDI_APPLICATION
-            self._notify(0)                                   # NIM_ADD
+            self.shown = self._notify(0)                      # NIM_ADD
+            u.SetTimer(self.hwnd, 1, 3000, None)              # check again every 3 seconds
         except Exception:
             self.hwnd = None
             self._ready.set()
@@ -4487,11 +4341,6 @@ class Falcon(tk.Tk):
         self.mode = None          # "supervisor" (all tabs) or "child" (Dashboard only)
         self.locked = False       # Settings opened without the password: view only
         self.service = None       # ServiceClient once the supervisor password was typed
-        self.sub = store.load_subscription()     # last known subscription details
-        self._sub_result = None
-        self._sub_running = False
-        self._sub_done = False
-        self._sub_callbacks = []
         self.configure(bg=FACE)
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self.cancel)
@@ -4510,8 +4359,6 @@ class Falcon(tk.Tk):
         body = tk.Frame(outer, bg=FACE, padx=6, pady=8)
         body.pack(fill="both", expand=True)
 
-        self.banner = tk.Frame(body, bg=FACE)        # subscription warnings (supervisor only)
-        self.banner.pack(fill="x")
         self.tabs = TabControl(body)
         self.tabs.pack(fill="both", expand=True)
         self._dashboard(self.tabs.add("Dashboard"))
@@ -4521,7 +4368,6 @@ class Falcon(tk.Tk):
             self._general(self.tabs.add("General"))
             self._time(self.tabs.add("Time Management"))
             self._zones(self.tabs.add("Zones"))
-            self._account(self.tabs.add("My Account"))
 
         foot = tk.Frame(body, bg=FACE)
         foot.pack(fill="x", pady=(7, 0))
@@ -4558,8 +4404,6 @@ class Falcon(tk.Tk):
             self._install_lock()
             self._show_lock_state()
             self._heartbeat()
-        self._show_subscription()
-        self.check_subscription()
         self._ready = True
 
     # --- view only / edit -------------------------------------------------------------
@@ -4570,7 +4414,7 @@ class Falcon(tk.Tk):
         for seq in ("<ButtonRelease-1>", "<B1-Motion>", "<Key>", "<MouseWheel>",
                     "<Button-4>", "<Button-5>"):
             self.bind_class("FalconLocked", seq, lambda e: "break" if self.locked else None)
-        view_ok = {self.check_btn}
+        view_ok = set()
         for _, ic, lb in self.zone_cells:
             view_ok |= {ic, lb, ic.master}
 
@@ -4625,67 +4469,8 @@ class Falcon(tk.Tk):
             self.edit_btn.set_enabled(False)
             self._update_enabled_ui()
 
-    # --- subscription -----------------------------------------------------------------
-    def expired(self):
-        return subscription_expired(self.sub)
-
     def protection_on(self):
-        """Falcon's switch is on and the subscription hasn't expired."""
-        return self.saved["enabled"] and not self.expired()
-
-    def check_subscription(self, then=None):
-        """Read the gist in the background (it can take a few seconds). If a check is
-        already running, wait for that one instead of starting another."""
-        if then:
-            self._sub_callbacks.append(then)
-        if self._sub_running:
-            return
-        self._sub_running = True
-        self._sub_done = False
-
-        def work():
-            try:
-                self._sub_result = self.store.refresh_subscription() if self.mode == "supervisor" \
-                    else (fetch_subscription() or self.store.load_subscription())
-            finally:
-                self._sub_done = True
-        self._sub_thread = threading.Thread(target=work, daemon=True)
-        self._sub_thread.start()
-        self.after(300, self._subscription_arrived)
-
-    def _subscription_arrived(self):
-        if not self._sub_done:
-            self.after(300, self._subscription_arrived)
-            return
-        was_expired = self.expired()
-        if self._sub_result:
-            self.sub = self._sub_result
-        self._sub_result, self._sub_running = None, False
-        callbacks, self._sub_callbacks = self._sub_callbacks, []
-        if self.expired() and not was_expired:
-            self.store.log("Subscription expired: protection turned off")
-        self._show_subscription()
-        for cb in callbacks:
-            cb()
-
-    def _show_subscription(self):
-        """Banner (3 days before: warning, 1 day before: critical, expired: critical)."""
-        if not hasattr(self, "banner"):
-            return
-        for w in self.banner.winfo_children():
-            w.destroy()
-        st = subscription_status(self.sub)
-        if self.mode == "supervisor" and st["level"] in ("warning", "critical", "expired"):
-            critical = st["level"] != "warning"
-            bg, fg = ("#c00000", WINDOW) if critical else ("#ffffe1", INK)
-            box = Bevel(self.banner, THIN_SUNKEN, bg=bg, padx=6, pady=5)
-            box.pack(fill="x", pady=(0, 7))
-            icon(box.body, "error" if critical else "warning", 16, bg=bg).pack(side="left", anchor="n")
-            label(box.body, st["text"], bold=critical, bg=bg, fg=fg, wraplength=430).pack(
-                side="left", padx=(8, 0), fill="x")
-        self._update_enabled_ui()
-        if hasattr(self, "acct_values"):
-            self._refresh_account()
+        return self.saved["enabled"]
 
     def _heartbeat(self):
         """While the supervisor has unlocked editing, tell the monitor not to lock the screen."""
@@ -4766,7 +4551,6 @@ class Falcon(tk.Tk):
         for change in describe_changes(old, new):
             self.store.log(change)
         self.saved = self.store.load()
-        self.sub = self.store.load_subscription()
         return True
 
     def _show_in_taskbar(self):
@@ -5010,11 +4794,6 @@ class Falcon(tk.Tk):
 
     # --- on / off ------------------------------------------------------------------
     def toggle_enabled(self):
-        if not self.saved["enabled"] and self.expired():
-            message(self, "Falcon", "Your Falcon subscription has expired, so protection can't "
-                    "be turned on. Renew your subscription, then click Check Now on the My "
-                    "Account tab.", "error")
-            return
         if not self.ensure_password():
             return
         self.saved["enabled"] = not self.saved["enabled"]
@@ -5043,19 +4822,15 @@ class Falcon(tk.Tk):
     def _update_enabled_ui(self):
         if not hasattr(self, "status_state"):
             return
-        expired = self.expired()
-        on = self.saved["enabled"] and not expired
-        self.status_state.config(text="Expired - off" if expired else
-                                 "Falcon is on" if on else "Falcon is off")
+        on = self.saved["enabled"]
+        self.status_state.config(text="Falcon is on" if on else "Falcon is off")
         if self.mode != "supervisor":
             return
         self.enabled_text.config(text=(
-            "Protection is off because your\nsubscription has expired." if expired else
             "Falcon is on. Screen time and the web\nfilter are enforced on the child's\naccount."
             if on else
             "Falcon is off. Nothing is counted\nor blocked."))
-        self.toggle_btn.set_text("Turn Off..." if self.saved["enabled"] and not expired else "Turn On...")
-        self.toggle_btn.set_enabled(not expired)
+        self.toggle_btn.set_text("Turn Off..." if on else "Turn On...")
 
     # --- Dashboard tab -------------------------------------------------------------------
     def _dashboard(self, page):
@@ -5455,9 +5230,6 @@ class Falcon(tk.Tk):
         if self.usage.get("date") != today:               # past midnight: a new day
             self.usage = self.store.load_usage()
         enabled = self.protection_on()
-        urgent = subscription_status(self.sub)["level"] in ("critical", "expired")
-        if self.tick_count and self.tick_count % (300 if urgent else SUBSCRIPTION_REFRESH_SECONDS) == 0:
-            self.check_subscription(then=self._apply_policies)
         self._protecting = enabled
         active = session_active()
         idle = idle_seconds()
@@ -5487,8 +5259,7 @@ class Falcon(tk.Tk):
                 notify("Falcon Advisory", "Your browser was closed so FalconGuard's settings "
                        "can take effect. You can open it again.")
         if self.tick_count % 15 == 0:
-            self.usage["diag"] = dict(self.diag, enabled=self.saved["enabled"], expired=self.expired(),
-                                      sub_expires=(self.sub or {}).get("expires"),
+            self.usage["diag"] = dict(self.diag, enabled=self.saved["enabled"],
                                       level=self.saved["web_filter_level"])
             try:
                 self.store.save_usage(self.usage)
@@ -5585,6 +5356,7 @@ class Falcon(tk.Tk):
                                             "(Restricted level)."])
                     self.diag["connections"] = len(conns)
                     self.diag["check_ms"] = int((time.monotonic() - started) * 1000)
+                    self.diag.update(dns_method=DNS_READ["method"], dns_codes=DNS_READ["api_codes"])
                     if found:
                         recent[found[0]] = time.time()
                         self.diag["last_block"] = found[0]
@@ -5673,74 +5445,6 @@ class Falcon(tk.Tk):
             self.checker.allowed_once.add(host)
             self.store.log(f"{host} allowed this time from Falcon Advisor")
         return True
-
-    # --- My Account tab -----------------------------------------------------------------
-    def _account(self, page):
-        top = tk.Frame(page, bg=FACE)
-        top.pack(fill="x")
-        icon(top, "falcon", 32).pack(side="left", anchor="n")
-        label(top, "Your FalconGuard subscription. Falcon checks it when it starts\n"
-                   "and every hour. Click Check Now to check straight away.").pack(side="left", padx=10)
-
-        box = GroupBox(page, "Subscription")
-        box.pack(fill="x", pady=(12, 0))
-        grid = tk.Frame(box.body, bg=FACE)
-        grid.pack(fill="x")
-        self.acct_values = {}
-        for r, key in enumerate(("Falcon Edition:", "Price:", "Expires on:", "Days remaining:",
-                                 "Status:")):
-            label(grid, key).grid(row=r, column=0, sticky="w", pady=3)
-            v = label(grid, bold=key in ("Falcon Edition:", "Days remaining:"))
-            v.grid(row=r, column=1, sticky="w", padx=(16, 0), pady=3)
-            self.acct_values[key] = v
-
-        row = tk.Frame(box.body, bg=FACE)
-        row.pack(fill="x", pady=(10, 0))
-        self.acct_checked = label(row, fg=GRAYTEXT)
-        self.acct_checked.pack(side="left", anchor="s")
-        self.check_btn = Button(row, "Check Now", command=self._check_now)
-        self.check_btn.pack(side="right")
-
-        box = GroupBox(page, "When your subscription ends")
-        box.pack(fill="x", pady=(10, 0))
-        label(box.body, f"{WARN_DAYS} days before: a warning appears at the top of this window.\n"
-                        f"{CRITICAL_DAYS} day before: a critical warning appears.\n"
-                        "On the day it ends: protection turns off and can't be turned\n"
-                        "back on until the subscription is renewed.").pack(fill="x")
-        self._refresh_account()
-
-    def _refresh_account(self):
-        sub, st = self.sub, subscription_status(self.sub)
-        v = self.acct_values
-        v["Falcon Edition:"].config(text=sub["edition"] if sub else "Unknown")
-        v["Price:"].config(text=fmt_price(sub))
-        v["Expires on:"].config(text=datetime.strptime(sub["expires"], "%Y-%m-%d").strftime(
-            "%d %B %Y").lstrip("0") if sub else "Unknown")
-        v["Days remaining:"].config(text=fmt_days_left(st["days"]),
-                                    fg=NEVER_FG if st["level"] in ("critical", "expired") else INK)
-        v["Status:"].config(text={"ok": "Active", "warning": "Expires soon",
-                                  "critical": "Expires tomorrow", "expired": "Expired",
-                                  "unknown": "Not checked yet"}[st["level"]])
-        if sub and sub.get("checked"):
-            try:
-                when = datetime.fromisoformat(sub["checked"]).strftime("%d %b %Y at %H:%M").lstrip("0")
-            except ValueError:
-                when = sub["checked"]
-            self.acct_checked.config(text=f"Last checked {when}.")
-        else:
-            self.acct_checked.config(text="Falcon couldn't reach the subscription service yet.")
-
-    def _check_now(self):
-        self.check_btn.set_enabled(False)
-        self.acct_checked.config(text="Checking...")
-
-        def done():
-            self.check_btn.set_enabled(True)
-            if not self.sub or not self.sub.get("checked") or \
-                    time.time() - _iso_to_ts(self.sub["checked"]) > 60:
-                message(self, "My Account", "Falcon couldn't reach the subscription service. "
-                        "Check the internet connection and try again.", "error")
-        self.check_subscription(then=done)
 
     # --- Content Filter tab ----------------------------------------------------------
     def _content_filter(self, page):

@@ -1,8 +1,8 @@
 
 ## What it does
 
-- **Time Counting:** After 1 minute 15 seconds with no
-  mouse or keyboard activity, counting pauses (and that quiet time isn't counted). Notifications
+  mouse or keyboard is being used on the child's account: after 1 minute 15 seconds with no
+  mouse or keyboard, counting pauses (and that quiet time isn't counted). Notifications
   at 5 and 1 minutes left, then the computer locks every 5 seconds until more time is added
   (typing a coupon or the supervisor password holds the lock off until 7 seconds after the last key).
 - **Extra time:** coupons the child can redeem, or time the supervisor adds.
@@ -59,14 +59,6 @@ window on the PC, and it needs the supervisor password too.
 - The PC's network must be set to **Private**, or other devices can't reach it.
 - The connection isn't encrypted, so the password crosses the home network as plain text.
   Use it on a network you trust, and don't set up port forwarding to it on your router.
-
-## Subscription (My Account)
-
-- **My Account** shows the edition, the monthly price, the expiry date and the days remaining.
-- 3 days before it ends, a warning banner appears. 1 day before, a critical banner appears.
-- On the day it ends, protection turns off and can't be turned back on until the date in the
-  gist is moved forward. Click **Check Now** on My Account after renewing.
-- The last answer is saved, so the expiry date still applies when the gist can't be reached.
 
 ## Command-line options
 

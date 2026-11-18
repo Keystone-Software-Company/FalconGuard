@@ -61,8 +61,6 @@ legend{padding:0 2px}
 .list div.sel{background:var(--sel);color:#fff!important}
 .status{display:flex;gap:2px;margin-top:2px}
 .status div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.banner{display:flex;gap:8px;align-items:flex-start;padding:5px 6px;margin-bottom:7px;box-shadow:inset 1px 1px var(--sh),inset -1px -1px var(--hi)}
-.banner.warn{background:#ffffe1}.banner.crit{background:#c00000;color:#fff;font-weight:bold}
 /* trackbar */
 .track{position:relative;height:30px;touch-action:none;outline:0}
 .track .groove{position:absolute;left:4px;right:4px;top:8px;height:4px;
@@ -376,13 +374,8 @@ function render() {
   app.innerHTML = "";
   const titleText = child ? "Falcon Dashboard" : "Falcon Parental Controls";
   const w = windowFrame(titleText, child ? () => closedScreen() : cancel, about);
-  const st = child ? null : S.sub_status;
-  if (st && ["warning", "critical", "expired"].includes(st.level)) {
-    const crit = st.level !== "warning";
-    w.body.append($("div", {class: "banner " + (crit ? "crit" : "warn")}, icon(crit ? "error" : "warning", 16, crit ? "#c00000" : "#ffffe1"), txt(st.text)));
-  }
-  const names = child ? ["Dashboard"] : ["Dashboard", "Content Filter", "Approved Sites", "General", "Time Management", "Zones", "My Account"];
-  const builders = child ? [dashboardPage] : [dashboardPage, filterPage, sitesPage, generalPage, timePage, zonesPage, accountPage];
+  const names = child ? ["Dashboard"] : ["Dashboard", "Content Filter", "Approved Sites", "General", "Time Management", "Zones"];
+  const builders = child ? [dashboardPage] : [dashboardPage, filterPage, sitesPage, generalPage, timePage, zonesPage];
   if (currentTab >= names.length) currentTab = 0;
   const tabs = $("div", {class: "tabs"}), sheet = $("div", {class: "sheet"});
   names.forEach((n, i) => {
@@ -398,9 +391,8 @@ function render() {
     w.body.append(buttonRow(button("OK", ok, {def: true}), button("Cancel", cancel), applyBtn));
     changed();
   }
-  const expired = !child && S.sub_status.level === "expired";
-  const on = !child && S.enabled && !expired;
-  w.append($("div", {class: "status"}, $("div", {class: "thin", style: "width:110px"}, child ? "Dashboard" : expired ? "Expired - off" : on ? "Falcon is on" : "Falcon is off"),
+  const on = !child && S.enabled;
+  w.append($("div", {class: "status"}, $("div", {class: "thin", style: "width:110px"}, child ? "Dashboard" : on ? "Falcon is on" : "Falcon is off"),
     $("div", {class: "thin", style: "flex:1"}, "Draft " + (S.version || ""))));
   app.append(w);
 }
@@ -574,17 +566,17 @@ function sitesPage(p) {
 
 // ---------------------------------------------------------------- General tab
 function generalPage(p) {
-  const expired = S.sub_status.level === "expired", on = S.enabled && !expired;
+  const on = S.enabled;
   const toggle = button(on ? "Turn Off..." : "Turn On...", async () => {
     const r = await apiOrError("/api/enabled", {on: !S.enabled});
     if (!r) return;
     const keep = pending; S = r.state; saved = editable(); pending = keep; render();
     if (S.enabled && !S.settings.child_account) await message("Falcon", "Falcon is on. Next, choose the child's Windows account under Child's account on this tab, and click Apply.", "warning");
     else if (S.enabled) await message("Falcon", `Falcon is on. Screen time and the web filter are enforced on ${S.settings.child_account}'s account while Falcon runs there.`);
-  }, {disabled: expired});
+  });
   const mon = S.monitor || {running: false, text: ""};
   p.append(group("Falcon", $("div", {class: "row between"}, $("div", {class: "icotext"}, icon("falcon", 32),
-    txt(expired ? "Protection is off because your\nsubscription has expired." : on ? "Falcon is on. Screen time and the web\nfilter are enforced on the child's\naccount." : "Falcon is off. Nothing is counted\nor blocked.")), toggle),
+    txt(on ? "Falcon is on. Screen time and the web\nfilter are enforced on the child's\naccount." : "Falcon is off. Nothing is counted\nor blocked.")), toggle),
     $("div", {class: "row", style: "margin-top:8px;align-items:flex-start"}, icon(mon.running ? "trusted" : "warning"), $("div", {}, mon.text))));
   const acct = field({width: 160, value: pending.child_account});
   acct.input.addEventListener("input", () => { pending.child_account = acct.input.value.trim().slice(0, 100); changed(); });
@@ -758,29 +750,6 @@ function zonesPage(p) {
       $("div", {class: "row", style: "align-items:flex-start;margin:8px 0 6px"}, vt, lines),
       $("div", {class: "end"}, button("Custom Level...", () => message("Custom Level", "Custom protection levels will be added in a later version of Falcon.")), defBtn)));
   pick(currentZone);
-}
-
-// ---------------------------------------------------------------- My Account tab
-function accountPage(p) {
-  const sub = S.subscription, st = S.sub_status;
-  const expires = sub ? new Date(sub.expires + "T00:00:00").toLocaleDateString("en-GB", {day: "numeric", month: "long", year: "numeric"}) : "Unknown";
-  const statusText = {ok: "Active", warning: "Expires soon", critical: "Expires tomorrow", expired: "Expired", unknown: "Not checked yet"}[st.level];
-  const checked = sub && sub.checked ? "Last checked " + new Date(sub.checked).toLocaleString("en-GB", {day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"}).replace(",", " at") + "." : "Falcon couldn't reach the subscription service yet.";
-  const red = ["critical", "expired"].includes(st.level);
-  const check = button("Check Now", async () => {
-    check.disabled = true;
-    const r = await apiOrError("/api/subscription/check", {});
-    check.disabled = false;
-    if (!r) return;
-    const keep = pending; S = r.state; saved = editable(); pending = keep; render();
-    if (!r.reached) await message("My Account", "Falcon couldn't reach the subscription service. Check the internet connection and try again.", "error");
-  });
-  p.append($("div", {class: "icotext"}, icon("falcon", 32), txt("Your FalconGuard subscription. Falcon checks it when it starts\nand every hour. Click Check Now to check straight away.")),
-    $("div", {style: "margin-top:12px"}, group("Subscription",
-      kv("gap:6px 16px", "Falcon Edition:", $("b", {}, sub ? sub.edition : "Unknown"), "Price:", S.price, "Expires on:", expires,
-        "Days remaining:", $("b", {style: red ? "color:#a00000" : ""}, S.days_left), "Status:", statusText),
-      $("div", {class: "row between", style: "margin-top:10px"}, $("span", {class: "gray"}, checked), check))),
-    group("When your subscription ends", txt("3 days before: a warning appears at the top of this window.\n1 day before: a critical warning appears.\nOn the day it ends: protection turns off and can't be turned\nback on until the subscription is renewed.")));
 }
 
 start();
